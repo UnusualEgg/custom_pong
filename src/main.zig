@@ -110,12 +110,59 @@ const Ball = struct {
         w4.rect(self.x, self.y, self.size, self.size);
     }
 };
+const ENUM_TYPE = u8;
+const Menu = enum(ENUM_TYPE) {
+    Start,
+    Game,
+    Options,
+};
+//static array maybe idk
+const StartButtons = enum(ENUM_TYPE) {
+    start,
+    save,
+    load,
+    options,
+};
+const OptionsButtons = enum(ENUM_TYPE) {
+    colors,
+    palette,
+};
+const ColorsButtons = enum(ENUM_TYPE) {
+    paddle_left,
+    paddle_right,
+    ball,
+};
+const PaletteButtons = enum(ENUM_TYPE) {};
+fn next(comptime T: type, cursor: *T) void {
+    const len = @typeInfo(T).@"enum".fields.len;
+    var curs = @intFromEnum(cursor.*);
+    if (curs + 1 == len) {
+        curs = 0;
+    } else {
+        curs = curs + 1;
+    }
+    cursor.* = @enumFromInt(curs);
+}
+fn prev(comptime T: type, cursor: *T) void {
+    const len = @typeInfo(T).@"enum".fields.len;
+    var curs = @intFromEnum(cursor.*);
+    if (curs == 0) {
+        curs = len - 1;
+    } else {
+        curs = curs - 1;
+    }
+    cursor.* = @enumFromInt(curs);
+}
 const State = struct {
     paddle_l: Paddle,
     paddle_r: Paddle,
     ball: Ball,
     score_l: u16 = 0,
     score_r: u16 = 0,
+    score_l_t: [2]u8 = .{ '0', '0' },
+    score_r_t: [2]u8 = .{ '0', '0' },
+    menu: Menu = .Start,
+    cursor: StartButtons = StartButtons.start,
     const Self = @This();
     fn new() Self {
         return State{
@@ -124,27 +171,94 @@ const State = struct {
             .ball = Ball.new(),
         };
     }
+
     fn update(self: *Self) void {
-        self.ball.update();
-        self.paddle_l.update();
-        self.paddle_r.update();
-        const score_l = self.ball.bounce(&self.paddle_l);
-        const score_r = self.ball.bounce(&self.paddle_r);
-        if (score_l) {
-            self.score_r += 1;
-        }
-        if (score_r) {
-            self.score_l += 1;
-        }
-        if (score_l or score_r) {
-            w4.tone(240, 5, 100, w4.TONE_PULSE1);
+        switch (self.menu) {
+            Menu.Game => {
+                self.ball.update();
+                self.paddle_l.update();
+                self.paddle_r.update();
+                const score_l = self.ball.bounce(&self.paddle_l);
+                const score_r = self.ball.bounce(&self.paddle_r);
+                if (score_l) {
+                    self.score_r += 1;
+                    self.score_r_t = std.fmt.digits2(self.score_r);
+                }
+                if (score_r) {
+                    self.score_l += 1;
+                    self.score_l_t = std.fmt.digits2(self.score_l);
+                }
+                if (score_l or score_r) {
+                    w4.tone(240, 5, 100, w4.TONE_PULSE1);
+                }
+            },
+            Menu.Start => {
+                const pressed = util.get_pressed(0);
+                if (util.is_pressed(pressed, w4.BUTTON_DOWN)) {
+                    self.next(StartButtons, &self.cursor);
+                }
+                if (util.is_pressed(pressed, w4.BUTTON_UP)) {
+                    self.prev(StartButtons, &self.cursor);
+                }
+
+                if (util.is_pressed(pressed, w4.BUTTON_1)) {
+                    switch (self.cursor) {
+                        StartButtons.start => {
+                            self.menu = .Game;
+                        },
+                        StartButtons.options => {
+                            self.menu = .Options;
+                        },
+                        else => {},
+                    }
+                }
+            },
+            Menu.Options => {
+                const pressed = util.get_pressed(0);
+                if (util.is_pressed(pressed, w4.BUTTON_DOWN)) {
+                    self.next(OptionsMenu, &self.cursor);
+                }
+                if (util.is_pressed(pressed, w4.BUTTON_UP)) {
+                    self.prev(Menu, &self.cursor);
+                }
+
+                if (util.is_pressed(pressed, w4.BUTTON_1)) {
+                    switch (self.cursor) {
+                        StartButtons.start => {
+                            self.menu = .Game;
+                        },
+                        StartButtons.options => {
+                            self.menu = .Options;
+                        },
+                        else => {},
+                    }
+                }
+            },
         }
     }
     fn draw(self: *const Self) void {
-        self.paddle_l.draw();
-        self.paddle_r.draw();
-        self.ball.draw();
-        util.text_centeredf("{d:0>2} {d:0<2}", .{ self.score_l, self.score_r }, 16);
+        switch (self.menu) {
+            Menu.Game => {
+                self.paddle_l.draw();
+                self.paddle_r.draw();
+                self.ball.draw();
+
+                util.text_centeredf("{s} {s}", .{ self.score_l_t, self.score_r_t }, 16);
+            },
+            Menu.Start => {
+                w4.DRAW_COLORS.* = 0x4;
+                util.text_centered("Pong!", 8);
+
+                inline for (@typeInfo(StartButtons).@"enum".fields, 0..) |button, i| {
+                    if (self.cursor == @as(StartButtons, @enumFromInt(button.value))) {
+                        w4.DRAW_COLORS.* = 0x40;
+                    } else {
+                        w4.DRAW_COLORS.* = 0x04;
+                    }
+                    util.text_centered(button.name, i * 8 + 16);
+                }
+            },
+        }
     }
 };
 var state: State = undefined;
