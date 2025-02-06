@@ -111,11 +111,14 @@ const Ball = struct {
     }
 };
 const ENUM_TYPE = u8;
+//Every single Screen/Menu we could be on
 const Menu = enum(ENUM_TYPE) {
     Start,
     Game,
     Options,
     Colors,
+    Palette,
+    PaletteColor,
 };
 //static array maybe idk
 const StartButtons = enum(ENUM_TYPE) {
@@ -134,16 +137,45 @@ const ColorsButtons = enum(ENUM_TYPE) {
     paddle_right,
     ball,
     back,
-
 };
-const Button = struct {name:[]const u8,value:ENUM_TYPE};
+const PaletteButtons = enum(ENUM_TYPE) {
+    color1,
+    color2,
+    color3,
+    color4,
+    back,
+};
+const PaletteColorButtons = enum(ENUM_TYPE) {
+    red,
+    green,
+    blue,
+    back,
+};
+const Button = struct { name: []const u8, value: ENUM_TYPE };
+const START_BUTTONS = gen_buttons(StartButtons);
+const OPTIONS_BUTTONS = gen_buttons(OptionsButtons);
+const COLORS_BUTTONS = gen_buttons(ColorsButtons);
+const PALETTE_BUTTONS = gen_buttons(PaletteButtons);
+const PALETTE_COLOR_BUTTONS = gen_buttons(PaletteColorButtons);
 
-fn gen_buttons(t:type) [get_enum_len(t)]Button {
-    var buttons:get_enum_len(Menu) =undefined;
-    for (@typeInfo(t).@"enum".fields) |field| {
-        buttons[field.]
+fn get_buttons(menu: Menu) ?[]const Button {
+    return switch (menu) {
+        .Start => &START_BUTTONS,
+        .Options => &OPTIONS_BUTTONS,
+        .Colors => &COLORS_BUTTONS,
+        .Pallete => &PALETTE_BUTTONS,
+        .PalleteColor => &PALETTE_COLOR_BUTTONS,
+        else => null,
+    };
+}
+
+fn gen_buttons(t: type) [get_enum_len(t)]Button {
+    var buttons: [get_enum_len(t)]Button = undefined;
+    for (@typeInfo(t).@"enum".fields, 0..) |field, i| {
+        buttons[i] = Button{ .name = field.name, .value = @intCast(field.value) };
     }
-};
+    return buttons;
+}
 //contains bugtons
 const Cursor = ENUM_TYPE;
 inline fn get_menu_fields(T: type, val: T) type {
@@ -168,6 +200,7 @@ inline fn get_buttons_enum(menu: Menu) type {
         .Start => StartButtons,
         .Colors => ColorsButtons,
         .Options => OptionsButtons,
+        .Pallete => PaletteButtons,
     };
 }
 const menu_lens: [get_enum_len(Menu)]usize = blk: {
@@ -180,7 +213,6 @@ const menu_lens: [get_enum_len(Menu)]usize = blk: {
 fn get_menu_len(menu: Menu) usize {
     return menu_lens[@intFromEnum(menu)];
 }
-const PaletteButtons = enum(ENUM_TYPE) {};
 const State = struct {
     paddle_l: Paddle,
     paddle_r: Paddle,
@@ -191,6 +223,7 @@ const State = struct {
     score_r_t: [2]u8 = .{ '0', '0' },
     menu: Menu = .Start,
     cursor: Cursor = @intFromEnum(StartButtons.start),
+    selected_color: u2 = 0,
     const Self = @This();
     fn new() Self {
         return State{
@@ -299,7 +332,7 @@ const State = struct {
                             self.go(.Colors);
                         },
                         OptionsButtons.palette => {
-                            w4.trace("TODO palette");
+                            self.go(.Pallete);
                         },
                         OptionsButtons.back => {
                             self.go(.Start);
@@ -334,6 +367,57 @@ const State = struct {
                     }
                 }
             },
+            Menu.Palette => {
+                const pressed = util.get_pressed(0);
+                if (util.is_pressed(pressed, w4.BUTTON_DOWN)) {
+                    self.next();
+                }
+                if (util.is_pressed(pressed, w4.BUTTON_UP)) {
+                    self.prev();
+                }
+                const left = util.is_pressed(pressed, w4.BUTTON_LEFT);
+                const right = util.is_pressed(pressed, w4.BUTTON_RIGHT);
+                const color = self.get_color(@enumFromInt(self.cursor));
+                if (color) |c| {
+                    if (left) {
+                        c.* -%= 1;
+                    }
+                    if (right) {
+                        c.* +%= 1;
+                    }
+                    if (c.* > 0x) {
+                        c.* = 4;
+                    }
+                } else {
+                    if (util.is_pressed(pressed, w4.BUTTON_1)) {
+                        self.go(Menu.Options);
+                    }
+                }
+            },
+            Menu.PaletteColor => {
+                const pressed = util.get_pressed(0);
+                if (util.is_pressed(pressed, w4.BUTTON_DOWN)) {
+                    self.next();
+                }
+                if (util.is_pressed(pressed, w4.BUTTON_UP)) {
+                    self.prev();
+                }
+                const left = util.is_pressed(pressed, w4.BUTTON_LEFT);
+                const right = util.is_pressed(pressed, w4.BUTTON_RIGHT);
+                const color = w4.PALETTE[@enumFromInt(self.selected_color)] >> (6 - (2 * self.cursor));
+                if (color) |c| {
+                    if (left) {
+                        c.* -%= 1;
+                    }
+                    if (right) {
+                        c.* +%= 1;
+                    }
+                } else {
+                    if (util.is_pressed(pressed, w4.BUTTON_1)) {
+                        self.go(Menu.Options);
+                    }
+                }
+            },
         }
     }
     fn draw(self: *const Self) void {
@@ -349,40 +433,61 @@ const State = struct {
                 w4.DRAW_COLORS.* = 0x4;
                 util.text_centered("Pong!", 8);
 
-                const t = switch (self.menu) {
-                    Menu.Start => @typeInfo(StartButtons).@"enum".fields,
-                    Menu.Options => @typeInfo(OptionsButtons).@"enum".fields,
-                    else => unreachable,
-                };
-                inline for (t, 0..) |button, i| {
+                const buttons = get_buttons(self.menu).?;
+                for (buttons, 0..) |button, i| {
                     if (self.cursor == button.value) {
                         w4.DRAW_COLORS.* = 0x40;
                     } else {
                         w4.DRAW_COLORS.* = 0x04;
                     }
-                    util.text_centered(button.name, i * 8 + 16);
+                    util.text_centered(button.name, @intCast(i * 8 + 16));
                 }
             },
             Menu.Colors => {
                 w4.DRAW_COLORS.* = 0x4;
                 util.text_centered("Pong!", 8);
 
-                inline for (@typeInfo(ColorsButtons).@"enum".fields, 0..) |button, i| {
+                const buttons = get_buttons(self.menu).?;
+                for (buttons, 0..) |button, i| {
                     const c = self.get_color_const(@enumFromInt(button.value));
                     if (self.cursor == button.value) {
-                        w4.DRAW_COLORS.* = 0x40;
+                        w4.DRAW_COLORS.* = 0x41;
                     } else {
-                        w4.DRAW_COLORS.* = 0x04;
+                        w4.DRAW_COLORS.* = 0x24;
                     }
-
+                    const y: i32 = @intCast(i * 8 + 16);
                     if (c) |color| {
                         if (self.cursor == button.value) {
-                            util.text_centeredf("\x84{s} {}\x85", .{ button.name, color }, i * 8 + 16);
+                            util.text_centeredf("\x84{s} {}\x85", .{ button.name, color.* }, y);
                         } else {
-                            util.text_centeredf("{s} {}", .{ button.name, color }, i * 8 + 16);
+                            util.text_centeredf("{s} {}", .{ button.name, color.* }, y);
                         }
                     } else {
-                        util.text_centeredf("{s}", .{button.name}, i * 8 + 16);
+                        util.text_centeredf("{s}", .{button.name}, y);
+                    }
+                }
+            },
+            Menu.Palette => {
+                w4.DRAW_COLORS.* = 0x4;
+                util.text_centered("Palette", 8);
+
+                const buttons = get_buttons(self.menu).?;
+                for (buttons, 0..) |button, i| {
+                    const c: ?*u4 = if (i < 4) w4.PALETTE[@intCast(button.value)] else null;
+                    if (self.cursor == button.value) {
+                        w4.DRAW_COLORS.* = 0x41;
+                    } else {
+                        w4.DRAW_COLORS.* = 0x24;
+                    }
+                    const y: i32 = @intCast(i * 8 + 16);
+                    if (c) |color| {
+                        if (self.cursor == button.value) {
+                            util.text_centeredf("\x84{s} {x}\x85", .{ button.name, color.* }, y);
+                        } else {
+                            util.text_centeredf("{s} {x}", .{ button.name, color.* }, y);
+                        }
+                    } else {
+                        util.text_centeredf("{s}", .{button.name}, y);
                     }
                 }
             },
