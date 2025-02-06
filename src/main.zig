@@ -115,6 +115,7 @@ const Menu = enum(ENUM_TYPE) {
     Start,
     Game,
     Options,
+    Colors,
 };
 //static array maybe idk
 const StartButtons = enum(ENUM_TYPE) {
@@ -126,33 +127,60 @@ const StartButtons = enum(ENUM_TYPE) {
 const OptionsButtons = enum(ENUM_TYPE) {
     colors,
     palette,
+    back,
 };
 const ColorsButtons = enum(ENUM_TYPE) {
     paddle_left,
     paddle_right,
     ball,
+    back,
+
 };
+const Button = struct {name:[]const u8,value:ENUM_TYPE};
+
+fn gen_buttons(t:type) [get_enum_len(t)]Button {
+    var buttons:get_enum_len(Menu) =undefined;
+    for (@typeInfo(t).@"enum".fields) |field| {
+        buttons[field.]
+    }
+};
+//contains bugtons
+const Cursor = ENUM_TYPE;
+inline fn get_menu_fields(T: type, val: T) type {
+    return @TypeOf(@field(val, @tagName(val)));
+}
+fn get_enum_len(t: type) usize {
+    switch (@typeInfo(t)) {
+        .@"enum" => |e| {
+            return e.fields.len;
+        },
+        .void => {
+            return 0;
+        },
+        else => {
+            @compileError("get_enum_len on something other than enum");
+        },
+    }
+}
+inline fn get_buttons_enum(menu: Menu) type {
+    return switch (menu) {
+        .Game => void,
+        .Start => StartButtons,
+        .Colors => ColorsButtons,
+        .Options => OptionsButtons,
+    };
+}
+const menu_lens: [get_enum_len(Menu)]usize = blk: {
+    var lens: [get_enum_len(Menu)]usize = undefined;
+    for (@typeInfo(Menu).@"enum".fields) |field| {
+        lens[field.value] = get_enum_len(get_buttons_enum(@enumFromInt(field.value)));
+    }
+    break :blk lens;
+};
+fn get_menu_len(menu: Menu) usize {
+    return menu_lens[@intFromEnum(menu)];
+}
 const PaletteButtons = enum(ENUM_TYPE) {};
-fn next(comptime T: type, cursor: *T) void {
-    const len = @typeInfo(T).@"enum".fields.len;
-    var curs = @intFromEnum(cursor.*);
-    if (curs + 1 == len) {
-        curs = 0;
-    } else {
-        curs = curs + 1;
-    }
-    cursor.* = @enumFromInt(curs);
-}
-fn prev(comptime T: type, cursor: *T) void {
-    const len = @typeInfo(T).@"enum".fields.len;
-    var curs = @intFromEnum(cursor.*);
-    if (curs == 0) {
-        curs = len - 1;
-    } else {
-        curs = curs - 1;
-    }
-    cursor.* = @enumFromInt(curs);
-}
 const State = struct {
     paddle_l: Paddle,
     paddle_r: Paddle,
@@ -162,7 +190,7 @@ const State = struct {
     score_l_t: [2]u8 = .{ '0', '0' },
     score_r_t: [2]u8 = .{ '0', '0' },
     menu: Menu = .Start,
-    cursor: StartButtons = StartButtons.start,
+    cursor: Cursor = @intFromEnum(StartButtons.start),
     const Self = @This();
     fn new() Self {
         return State{
@@ -170,6 +198,49 @@ const State = struct {
             .paddle_r = Paddle.new(false),
             .ball = Ball.new(),
         };
+    }
+    fn next(self: *Self) void {
+        if (self.menu == .Game) return;
+
+        const len = get_menu_len(self.menu);
+        var curs = self.cursor;
+        if (curs + 1 == len) {
+            curs = 0;
+        } else {
+            curs = curs + 1;
+        }
+        self.cursor = curs;
+    }
+    fn prev(self: *Self) void {
+        if (self.menu == .Game) return;
+        const len = get_menu_len(self.menu);
+        var curs = self.cursor;
+        if (curs == 0) {
+            curs = @truncate(len - 1);
+        } else {
+            curs = curs - 1;
+        }
+        self.cursor = curs;
+    }
+    fn get_color(self: *Self, button: ColorsButtons) ?*ColorIndex {
+        return switch (button) {
+            ColorsButtons.paddle_left => &self.paddle_l.color,
+            ColorsButtons.paddle_right => &self.paddle_r.color,
+            ColorsButtons.ball => &self.ball.color,
+            else => null,
+        };
+    }
+    fn get_color_const(self: *const Self, button: ColorsButtons) ?*const ColorIndex {
+        return switch (button) {
+            ColorsButtons.paddle_left => &self.paddle_l.color,
+            ColorsButtons.paddle_right => &self.paddle_r.color,
+            ColorsButtons.ball => &self.ball.color,
+            else => null,
+        };
+    }
+    fn go(self: *Self, menu: Menu) void {
+        self.menu = menu;
+        self.cursor = 0;
     }
 
     fn update(self: *Self) void {
@@ -195,19 +266,19 @@ const State = struct {
             Menu.Start => {
                 const pressed = util.get_pressed(0);
                 if (util.is_pressed(pressed, w4.BUTTON_DOWN)) {
-                    self.next(StartButtons, &self.cursor);
+                    self.next();
                 }
                 if (util.is_pressed(pressed, w4.BUTTON_UP)) {
-                    self.prev(StartButtons, &self.cursor);
+                    self.prev();
                 }
 
                 if (util.is_pressed(pressed, w4.BUTTON_1)) {
-                    switch (self.cursor) {
+                    switch (@as(StartButtons, @enumFromInt(self.cursor))) {
                         StartButtons.start => {
-                            self.menu = .Game;
+                            self.go(.Game);
                         },
                         StartButtons.options => {
-                            self.menu = .Options;
+                            self.go(.Options);
                         },
                         else => {},
                     }
@@ -216,21 +287,50 @@ const State = struct {
             Menu.Options => {
                 const pressed = util.get_pressed(0);
                 if (util.is_pressed(pressed, w4.BUTTON_DOWN)) {
-                    self.next(OptionsMenu, &self.cursor);
+                    self.next();
                 }
                 if (util.is_pressed(pressed, w4.BUTTON_UP)) {
-                    self.prev(Menu, &self.cursor);
+                    self.prev();
                 }
 
                 if (util.is_pressed(pressed, w4.BUTTON_1)) {
-                    switch (self.cursor) {
-                        StartButtons.start => {
-                            self.menu = .Game;
+                    switch (@as(OptionsButtons, @enumFromInt(self.cursor))) {
+                        OptionsButtons.colors => {
+                            self.go(.Colors);
                         },
-                        StartButtons.options => {
-                            self.menu = .Options;
+                        OptionsButtons.palette => {
+                            w4.trace("TODO palette");
                         },
-                        else => {},
+                        OptionsButtons.back => {
+                            self.go(.Start);
+                        },
+                    }
+                }
+            },
+            Menu.Colors => {
+                const pressed = util.get_pressed(0);
+                if (util.is_pressed(pressed, w4.BUTTON_DOWN)) {
+                    self.next();
+                }
+                if (util.is_pressed(pressed, w4.BUTTON_UP)) {
+                    self.prev();
+                }
+                const left = util.is_pressed(pressed, w4.BUTTON_LEFT);
+                const right = util.is_pressed(pressed, w4.BUTTON_RIGHT);
+                const color = self.get_color(@enumFromInt(self.cursor));
+                if (color) |c| {
+                    if (left) {
+                        c.* -%= 1;
+                    }
+                    if (right) {
+                        c.* +%= 1;
+                    }
+                    if (c.* > 4) {
+                        c.* = 4;
+                    }
+                } else {
+                    if (util.is_pressed(pressed, w4.BUTTON_1)) {
+                        self.go(Menu.Options);
                     }
                 }
             },
@@ -245,17 +345,45 @@ const State = struct {
 
                 util.text_centeredf("{s} {s}", .{ self.score_l_t, self.score_r_t }, 16);
             },
-            Menu.Start => {
+            Menu.Start, Menu.Options => {
                 w4.DRAW_COLORS.* = 0x4;
                 util.text_centered("Pong!", 8);
 
-                inline for (@typeInfo(StartButtons).@"enum".fields, 0..) |button, i| {
-                    if (self.cursor == @as(StartButtons, @enumFromInt(button.value))) {
+                const t = switch (self.menu) {
+                    Menu.Start => @typeInfo(StartButtons).@"enum".fields,
+                    Menu.Options => @typeInfo(OptionsButtons).@"enum".fields,
+                    else => unreachable,
+                };
+                inline for (t, 0..) |button, i| {
+                    if (self.cursor == button.value) {
                         w4.DRAW_COLORS.* = 0x40;
                     } else {
                         w4.DRAW_COLORS.* = 0x04;
                     }
                     util.text_centered(button.name, i * 8 + 16);
+                }
+            },
+            Menu.Colors => {
+                w4.DRAW_COLORS.* = 0x4;
+                util.text_centered("Pong!", 8);
+
+                inline for (@typeInfo(ColorsButtons).@"enum".fields, 0..) |button, i| {
+                    const c = self.get_color_const(@enumFromInt(button.value));
+                    if (self.cursor == button.value) {
+                        w4.DRAW_COLORS.* = 0x40;
+                    } else {
+                        w4.DRAW_COLORS.* = 0x04;
+                    }
+
+                    if (c) |color| {
+                        if (self.cursor == button.value) {
+                            util.text_centeredf("\x84{s} {}\x85", .{ button.name, color }, i * 8 + 16);
+                        } else {
+                            util.text_centeredf("{s} {}", .{ button.name, color }, i * 8 + 16);
+                        }
+                    } else {
+                        util.text_centeredf("{s}", .{button.name}, i * 8 + 16);
+                    }
                 }
             },
         }
