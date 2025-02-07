@@ -344,6 +344,16 @@ const State = struct {
                 if (score_l or score_r) {
                     w4.tone(240, 5, 100, w4.TONE_PULSE1);
                 }
+                if (util.is_pressed(util.get_pressed(0), w4.BUTTON_1)) {
+                    self.go(.Start);
+                    self.paddle_l = Paddle.new(true);
+                    self.paddle_r = Paddle.new(false);
+                    self.ball = Ball.new();
+                    self.score_l = 0;
+                    self.score_r = 0;
+                    self.score_l_t = .{ '0', '0' };
+                    self.score_r_t = .{ '0', '0' };
+                }
             },
             Menu.Start => {
                 const pressed = util.get_pressed(0);
