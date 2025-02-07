@@ -126,9 +126,10 @@ const Menu = enum(ENUM_TYPE) {
 //static array maybe idk
 const StartButtons = enum(ENUM_TYPE) {
     start,
+    options,
     save,
     load,
-    options,
+    reset_score,
 };
 const OptionsButtons = enum(ENUM_TYPE) {
     colors,
@@ -358,10 +359,6 @@ const State = struct {
                     self.paddle_l = Paddle.new(true);
                     self.paddle_r = Paddle.new(false);
                     self.ball = Ball.new();
-                    self.score_l = 0;
-                    self.score_r = 0;
-                    self.score_l_t = .{ '0', '0' };
-                    self.score_r_t = .{ '0', '0' };
                 }
             },
             Menu.Start => {
@@ -386,6 +383,12 @@ const State = struct {
                         },
                         StartButtons.load => {
                             self.load();
+                        },
+                        StartButtons.reset_score => {
+                            self.score_l = 0;
+                            self.score_l_t = .{ '0', '0' };
+                            self.score_r = 0;
+                            self.score_r_t = .{ '0', '0' };
                         },
                     }
                 }
