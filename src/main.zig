@@ -35,6 +35,9 @@ const Paddle = struct {
         const speed: u8 = if (util.is_pressed(gamepad, w4.BUTTON_2)) 3 else 1;
         if (gamepad & w4.BUTTON_UP != 0) {
             self.y -|= speed;
+            if (self.y < 0) {
+                self.y = 0;
+            }
         }
         if (gamepad & w4.BUTTON_DOWN != 0) {
             if (self.y + self.h < w4.SCREEN_SIZE) {
