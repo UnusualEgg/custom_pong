@@ -16,7 +16,7 @@ const Color = u24;
 const ColorIndex = u4;
 const Paddle = struct {
     left: bool,
-    y: u8,
+    y: i16,
     color: ColorIndex,
     w: u8,
     h: u8,
@@ -32,14 +32,13 @@ const Paddle = struct {
     }
     fn update(self: *Self) void {
         const gamepad: u8 = @as(*u8, @ptrFromInt(@intFromPtr(w4.GAMEPAD1) + @intFromBool(!self.left))).*;
+        const speed: u8 = if (util.is_pressed(gamepad, w4.BUTTON_2)) 3 else 1;
         if (gamepad & w4.BUTTON_UP != 0) {
-            if (self.y > 0) {
-                self.y -= 1;
-            }
+            self.y -|= speed;
         }
         if (gamepad & w4.BUTTON_DOWN != 0) {
             if (self.y + self.h < w4.SCREEN_SIZE) {
-                self.y += 1;
+                self.y += speed;
             }
         }
     }
@@ -53,19 +52,20 @@ const CENTER = w4.SCREEN_SIZE / 2;
 const Ball = struct {
     x: i32,
     y: i32,
-    vx: i2,
-    vy: i2,
+    vx: i3,
+    vy: i3,
     size: u8,
     color: ColorIndex,
     const Self = @This();
     fn new() Self {
         const size = 4;
         const middle = size / 2;
+        const speed = 2;
         return Ball{
             .x = CENTER - middle,
             .y = CENTER - middle - 20,
-            .vx = -1,
-            .vy = 1,
+            .vx = -speed,
+            .vy = speed,
             .size = size,
             .color = 4,
         };
