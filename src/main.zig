@@ -95,8 +95,8 @@ const Ball = struct {
         const paddle_side = if (paddle.left) paddle.w else w4.SCREEN_SIZE - paddle.w;
         const can_collide = if (paddle.left) ball_side < paddle_side else ball_side > paddle_side;
         if (can_collide) {
+            self.vx *= -1;
             if (ball_bottom >= paddle_top and ball_top <= paddle_bottom) {
-                self.vx *= -1;
                 self.x += self.vx;
                 return false;
             } else {
@@ -338,10 +338,16 @@ const State = struct {
                 const score_r = self.ball.bounce(&self.paddle_r);
                 if (score_l) {
                     self.score_r += 1;
+                    if (self.score_r > 99) {
+                        self.score_r = 0;
+                    }
                     self.score_r_t = std.fmt.digits2(self.score_r);
                 }
                 if (score_r) {
                     self.score_l += 1;
+                    if (self.score_l > 99) {
+                        self.score_l = 0;
+                    }
                     self.score_l_t = std.fmt.digits2(self.score_l);
                 }
                 if (score_l or score_r) {
