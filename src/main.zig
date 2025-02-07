@@ -214,6 +214,36 @@ const menu_lens: [get_enum_len(Menu)]usize = blk: {
 fn get_menu_len(menu: Menu) usize {
     return menu_lens[@intFromEnum(menu)];
 }
+const DiskSave = struct {
+    ball_color: ColorIndex,
+    paddle_l: ColorIndex,
+    paddle_r: ColorIndex,
+    palette: [4]u32,
+    fn from_state(s: *const State) DiskSave {
+        return DiskSave{
+            .ball_color = s.ball.color,
+            .paddle_l = s.paddle_l.color,
+            .paddle_r = s.paddle_r.color,
+            .palette = w4.PALETTE.*,
+        };
+    }
+    fn to_state(self: *const DiskSave, s: *State) void {
+        s.ball.color = self.ball_color;
+        s.paddle_l.color = self.paddle_l;
+        s.paddle_r.color = self.paddle_r;
+        w4.PALETTE.* = self.palette;
+    }
+    fn save(self: *const DiskSave) void {
+        const bytes = w4.diskw(@ptrCast(self), @sizeOf(DiskSave));
+        util.tracef("wrote {} bytes", .{bytes});
+    }
+    fn load() DiskSave {
+        var d: DiskSave = undefined;
+        const bytes = w4.diskr(@ptrCast(&d), @sizeOf(DiskSave));
+        util.tracef("read {} bytes", .{bytes});
+        return d;
+    }
+};
 const State = struct {
     paddle_l: Paddle,
     paddle_r: Paddle,
@@ -232,6 +262,24 @@ const State = struct {
             .paddle_r = Paddle.new(false),
             .ball = Ball.new(),
         };
+    }
+    fn save(self: *const Self) void {
+        DiskSave.from_state(self).save();
+    }
+    fn load(self: *Self) void {
+        DiskSave.load().to_state(self);
+    }
+    fn display_palette(self: *const Self) void {
+        for (1..5) |i| {
+            w4.DRAW_COLORS.* = @intCast(i);
+            const x: i32 = @intCast(i - 1);
+            const height = 20;
+            const y = w4.SCREEN_SIZE - height;
+            w4.rect(x * (w4.SCREEN_SIZE / 4), y, w4.SCREEN_SIZE / 4, height);
+        }
+        self.ball.draw();
+        self.paddle_l.draw();
+        self.paddle_r.draw();
     }
     fn next(self: *Self) void {
         if (self.menu == .Game) return;
@@ -314,7 +362,12 @@ const State = struct {
                         StartButtons.options => {
                             self.go(.Options);
                         },
-                        else => {},
+                        StartButtons.save => {
+                            self.save();
+                        },
+                        StartButtons.load => {
+                            self.load();
+                        },
                     }
                 }
             },
@@ -354,13 +407,13 @@ const State = struct {
                 const color = self.get_color(@enumFromInt(self.cursor));
                 if (color) |c| {
                     if (left) {
-                        c.* -%= 1;
+                        if (c.* == 0) c.* = 4 else c.* -%= 1;
                     }
                     if (right) {
                         c.* +%= 1;
                     }
                     if (c.* > 4) {
-                        c.* = 4;
+                        c.* = 0;
                     }
                 } else {
                     if (util.is_pressed(pressed, w4.BUTTON_1)) {
@@ -387,17 +440,20 @@ const State = struct {
             },
             Menu.PaletteColor => {
                 const pressed = util.get_pressed(0);
+                const held = w4.GAMEPAD1.*;
                 if (util.is_pressed(pressed, w4.BUTTON_DOWN)) {
                     self.next();
                 }
                 if (util.is_pressed(pressed, w4.BUTTON_UP)) {
                     self.prev();
                 }
-                const left = util.is_pressed(pressed, w4.BUTTON_LEFT);
-                const right = util.is_pressed(pressed, w4.BUTTON_RIGHT);
+                const slow = util.is_pressed(held, w4.BUTTON_1);
+                const slow_or_held = if (slow) pressed else held;
+                const left = util.is_pressed(slow_or_held, w4.BUTTON_LEFT);
+                const right = util.is_pressed(slow_or_held, w4.BUTTON_RIGHT);
                 const ptr: *u32 = &w4.PALETTE[@intCast(self.selected_color)];
-                const shift: u5 = @truncate((8 * (2 - self.cursor)));
-                var color: ?u4 = if (self.cursor < 3) @truncate(ptr.* >> shift) else null;
+                const shift: u5 = @truncate((8 * (self.cursor)));
+                var color: ?u8 = if (self.cursor < 3) @truncate(ptr.* >> (16 - shift)) else null;
                 if (color) |*c| {
                     if (left) {
                         c.* -%= 1;
@@ -406,13 +462,17 @@ const State = struct {
                         c.* +%= 1;
                     }
                     if (left or right) {
-                        util.tracef("{X:0>}", args: anytype)
-                        ptr.* &= @as(u24, 0xff0000) >> shift;
-                        ptr.* |= c.* << @truncate(16 - shift);
+                        util.tracef("{X:0>2} w/ shift {}", .{ c.*, shift });
+                        const mask = (@as(u24, 0xff0000) >> shift);
+                        ptr.* &= ~mask;
+                        util.tracef("mask {X:0>6}", .{~mask});
+                        const combo: u24 = (@as(u24, c.*) << (16 - shift));
+                        ptr.* |= combo;
+                        util.tracef("ored{X:0>6} now {X:0>6}", .{ combo, ptr.* });
                     }
                 } else {
                     if (util.is_pressed(pressed, w4.BUTTON_1)) {
-                        self.go(Menu.Options);
+                        self.go(Menu.Palette);
                     }
                 }
             },
@@ -440,6 +500,7 @@ const State = struct {
                     }
                     util.text_centered(button.name, @intCast(i * 8 + 16));
                 }
+                if (self.menu == Menu.Palette) self.display_palette();
             },
             Menu.Colors => {
                 w4.DRAW_COLORS.* = 0x4;
@@ -463,6 +524,7 @@ const State = struct {
                     } else {
                         util.text_centeredf("{s}", .{button.name}, y);
                     }
+                    self.display_palette();
                 }
             },
             Menu.PaletteColor => {
@@ -472,8 +534,9 @@ const State = struct {
                 const buttons = get_buttons(self.menu).?;
                 for (buttons, 0..) |button, i| {
                     const ptr: *u32 = &w4.PALETTE[@intCast(self.selected_color)];
-                    const shift: u5 = @truncate((8 * (2 - self.cursor)));
-                    const c: ?u4 = if (self.cursor < 3) @truncate(ptr.* >> shift) else null;
+                    const shift: u5 = @truncate((8 * (2 - i)));
+                    const c: ?u8 = if (i < 3) @truncate(ptr.* >> shift) else null;
+
                     if (self.cursor == button.value) {
                         w4.DRAW_COLORS.* = 0x41;
                     } else {
@@ -482,14 +545,15 @@ const State = struct {
                     const y: i32 = @intCast(i * 8 + 16);
                     if (c) |color| {
                         if (self.cursor == button.value) {
-                            util.text_centeredf("\x84{s} {x}\x85", .{ button.name, color }, y);
+                            util.text_centeredf("\x84{s} {X:0>2}\x85", .{ button.name, color }, y);
                         } else {
-                            util.text_centeredf("{s} {x}", .{ button.name, color }, y);
+                            util.text_centeredf("{s} {X:0>2}", .{ button.name, color }, y);
                         }
                     } else {
                         util.text_centeredf("{s}", .{button.name}, y);
                     }
                 }
+                self.display_palette();
             },
         }
     }
