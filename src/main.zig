@@ -124,9 +124,9 @@ const Ball = struct {
         w4.DRAW_COLORS.* = self.color;
         w4.rect(self.x, self.y, self.size, self.size);
     }
-    fn display(self: *const Self,comptime i32) void {
+    fn display(self: *const Self, y: comptime_int) void {
         w4.DRAW_COLORS.* = self.color;
-        w4.rect(self.x, self.y, self.size, self.size);
+        w4.rect(w4.SCREEN_SIZE / 2, y, self.size, self.size);
     }
 };
 const ENUM_TYPE = u8;
@@ -335,7 +335,7 @@ const State = struct {
             const y = w4.SCREEN_SIZE - height;
             w4.rect(x * (w4.SCREEN_SIZE / 4), y, w4.SCREEN_SIZE / 4, height);
         }
-        self.ball.draw();
+        self.ball.display(w4.SCREEN_SIZE / 2 + 8);
         self.paddle_l.draw();
         self.paddle_r.draw();
     }
