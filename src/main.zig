@@ -20,17 +20,29 @@ const Paddle = struct {
     color: ColorIndex,
     w: u8,
     h: u8,
+    ai: bool,
     const Self = @This();
-    fn new(left: bool) Self {
+    fn new(left: bool, ai: bool) Self {
         return Paddle{
             .left = left,
             .y = 0,
             .w = 10,
             .h = 40,
             .color = 4,
+            .ai = ai,
         };
     }
-    fn update(self: *Self) void {
+    fn update(self: *Self, ball_y: i32) void {
+        if (self.ai) {
+            self.y = @as(i16, @truncate(ball_y)) - (self.h / 2);
+            if (self.y + self.h > w4.SCREEN_SIZE) {
+                self.y = @intCast(w4.SCREEN_SIZE - self.h);
+            }
+            if (self.y < 0) {
+                self.y = 0;
+            }
+            return;
+        }
         const gamepad: u8 = @as(*u8, @ptrFromInt(@intFromPtr(w4.GAMEPAD1) + @intFromBool(!self.left))).*;
         const speed: u8 = if (util.is_pressed(gamepad, w4.BUTTON_2)) 3 else 1;
         if (gamepad & w4.BUTTON_UP != 0) {
@@ -112,6 +124,10 @@ const Ball = struct {
         w4.DRAW_COLORS.* = self.color;
         w4.rect(self.x, self.y, self.size, self.size);
     }
+    fn display(self: *const Self,comptime i32) void {
+        w4.DRAW_COLORS.* = self.color;
+        w4.rect(self.x, self.y, self.size, self.size);
+    }
 };
 const ENUM_TYPE = u8;
 //Every single Screen/Menu we could be on
@@ -134,12 +150,14 @@ const StartButtons = enum(ENUM_TYPE) {
 const OptionsButtons = enum(ENUM_TYPE) {
     colors,
     palette,
+    enable_ai,
     back,
 };
 const ColorsButtons = enum(ENUM_TYPE) {
     paddle_left,
     paddle_right,
     ball,
+    text,
     back,
 };
 const PaletteButtons = enum(ENUM_TYPE) {
@@ -156,27 +174,52 @@ const PaletteColorButtons = enum(ENUM_TYPE) {
     back,
 };
 const Button = struct { name: []const u8, value: ENUM_TYPE };
-const START_BUTTONS = gen_buttons(StartButtons);
-const OPTIONS_BUTTONS = gen_buttons(OptionsButtons);
-const COLORS_BUTTONS = gen_buttons(ColorsButtons);
-const PALETTE_BUTTONS = gen_buttons(PaletteButtons);
-const PALETTE_COLOR_BUTTONS = gen_buttons(PaletteColorButtons);
+const Buttons = struct {
+    start: [get_enum_len(StartButtons)]Button,
+    options: [get_enum_len(OptionsButtons)]Button,
+    colors: [get_enum_len(ColorsButtons)]Button,
+    palette: [get_enum_len(PaletteButtons)]Button,
+    palette_color: [get_enum_len(PaletteColorButtons)]Button,
+    fn new() Buttons {
+        return Buttons{
+            .start = gen_buttons(StartButtons),
+            .options = gen_buttons(OptionsButtons),
+            .colors = gen_buttons(ColorsButtons),
+            .palette = gen_buttons(PaletteButtons),
+            .palette_color = gen_buttons(PaletteColorButtons),
+        };
+    }
+};
 
+var BUTTONS: Buttons = undefined;
 fn get_buttons(menu: Menu) ?[]const Button {
     return switch (menu) {
-        .Start => &START_BUTTONS,
-        .Options => &OPTIONS_BUTTONS,
-        .Colors => &COLORS_BUTTONS,
-        .Palette => &PALETTE_BUTTONS,
-        .PaletteColor => &PALETTE_COLOR_BUTTONS,
+        .Start => &BUTTONS.start,
+        .Options => &BUTTONS.options,
+        .Colors => &BUTTONS.colors,
+        .Palette => &BUTTONS.palette,
+        .PaletteColor => &BUTTONS.palette_color,
         else => null,
     };
 }
-
+var alloc_buf: [128]u8 = undefined;
+var fb_alloc = std.heap.FixedBufferAllocator.init(&alloc_buf);
+var alloc = fb_alloc.allocator();
 fn gen_buttons(t: type) [get_enum_len(t)]Button {
     var buttons: [get_enum_len(t)]Button = undefined;
-    for (@typeInfo(t).@"enum".fields, 0..) |field, i| {
-        buttons[i] = Button{ .name = field.name, .value = @intCast(field.value) };
+
+    const fields = @typeInfo(t).@"enum".fields;
+    inline for (fields, 0..) |field, i| {
+        if (std.mem.indexOf(u8, field.name, "_") != null) {
+            if (alloc.alloc(u8, field.name.len)) |output| {
+                _ = std.mem.replace(u8, field.name, "_", " ", output);
+                buttons[i] = Button{ .name = output, .value = @intCast(field.value) };
+            } else |_| {
+                buttons[i] = Button{ .name = "[NO SPACE!]", .value = @intCast(field.value) };
+            }
+        } else {
+            buttons[i] = Button{ .name = field.name, .value = @intCast(field.value) };
+        }
     }
     return buttons;
 }
@@ -222,12 +265,14 @@ const DiskSave = struct {
     ball_color: ColorIndex,
     paddle_l: ColorIndex,
     paddle_r: ColorIndex,
+    text: ColorIndex,
     palette: [4]u32,
     fn from_state(s: *const State) DiskSave {
         return DiskSave{
             .ball_color = s.ball.color,
             .paddle_l = s.paddle_l.color,
             .paddle_r = s.paddle_r.color,
+            .text = s.text_color,
             .palette = w4.PALETTE.*,
         };
     }
@@ -235,6 +280,7 @@ const DiskSave = struct {
         s.ball.color = self.ball_color;
         s.paddle_l.color = self.paddle_l;
         s.paddle_r.color = self.paddle_r;
+        s.text_color = self.text;
         w4.PALETTE.* = self.palette;
     }
     fn save(self: *const DiskSave) void {
@@ -259,11 +305,14 @@ const State = struct {
     menu: Menu = .Start,
     cursor: Cursor = @intFromEnum(StartButtons.start),
     selected_color: u2 = 0,
+    text_color: ColorIndex = 4,
+    notif_text: ?[]const u8 = null,
+    notif_timer: u8 = 0,
     const Self = @This();
     fn new() Self {
         return State{
-            .paddle_l = Paddle.new(true),
-            .paddle_r = Paddle.new(false),
+            .paddle_l = Paddle.new(true, false),
+            .paddle_r = Paddle.new(false, false),
             .ball = Ball.new(),
         };
     }
@@ -272,6 +321,11 @@ const State = struct {
     }
     fn load(self: *Self) void {
         DiskSave.load().to_state(self);
+    }
+    fn display(self: *Self, text: []const u8) void {
+        self.notif_text = text;
+        const secs = 2;
+        self.notif_timer = 60 * secs;
     }
     fn display_palette(self: *const Self) void {
         for (1..5) |i| {
@@ -313,6 +367,7 @@ const State = struct {
             ColorsButtons.paddle_left => &self.paddle_l.color,
             ColorsButtons.paddle_right => &self.paddle_r.color,
             ColorsButtons.ball => &self.ball.color,
+            ColorsButtons.text => &self.text_color,
             else => null,
         };
     }
@@ -321,6 +376,7 @@ const State = struct {
             ColorsButtons.paddle_left => &self.paddle_l.color,
             ColorsButtons.paddle_right => &self.paddle_r.color,
             ColorsButtons.ball => &self.ball.color,
+            ColorsButtons.text => &self.text_color,
             else => null,
         };
     }
@@ -330,11 +386,15 @@ const State = struct {
     }
 
     fn update(self: *Self) void {
+        self.notif_timer -|= 1;
+        if (self.notif_timer == 0) {
+            self.notif_text = null;
+        }
         switch (self.menu) {
             Menu.Game => {
                 self.ball.update();
-                self.paddle_l.update();
-                self.paddle_r.update();
+                self.paddle_l.update(self.ball.y);
+                self.paddle_r.update(self.ball.y);
                 const score_l = self.ball.bounce(&self.paddle_l);
                 const score_r = self.ball.bounce(&self.paddle_r);
                 if (score_l) {
@@ -356,8 +416,8 @@ const State = struct {
                 }
                 if (util.is_pressed(util.get_pressed(0), w4.BUTTON_1)) {
                     self.go(.Start);
-                    self.paddle_l = Paddle.new(true);
-                    self.paddle_r = Paddle.new(false);
+                    self.paddle_l = Paddle.new(true, false);
+                    self.paddle_r = Paddle.new(false, self.paddle_r.ai);
                     self.ball = Ball.new();
                 }
             },
@@ -380,9 +440,11 @@ const State = struct {
                         },
                         StartButtons.save => {
                             self.save();
+                            self.display("Saved!");
                         },
                         StartButtons.load => {
                             self.load();
+                            self.display("Loaded!");
                         },
                         StartButtons.reset_score => {
                             self.score_l = 0;
@@ -401,6 +463,11 @@ const State = struct {
                 if (util.is_pressed(pressed, w4.BUTTON_UP)) {
                     self.prev();
                 }
+                if (util.is_pressed(pressed, w4.BUTTON_LEFT) or util.is_pressed(pressed, w4.BUTTON_RIGHT)) {
+                    if (@as(OptionsButtons, @enumFromInt(self.cursor)) == OptionsButtons.enable_ai) {
+                        self.paddle_r.ai = !self.paddle_r.ai;
+                    }
+                }
 
                 if (util.is_pressed(pressed, w4.BUTTON_1)) {
                     switch (@as(OptionsButtons, @enumFromInt(self.cursor))) {
@@ -413,6 +480,7 @@ const State = struct {
                         OptionsButtons.back => {
                             self.go(.Start);
                         },
+                        else => {},
                     }
                 }
             },
@@ -507,36 +575,63 @@ const State = struct {
                 self.paddle_r.draw();
                 self.ball.draw();
 
+                w4.DRAW_COLORS.* = self.text_color;
                 util.text_centeredf("{s} {s}", .{ self.score_l_t, self.score_r_t }, 16);
             },
-            Menu.Start, Menu.Options, Menu.Palette => {
-                w4.DRAW_COLORS.* = 0x4;
+            Menu.Start, Menu.Palette => {
+                w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Pong!", 8);
 
                 const buttons = get_buttons(self.menu).?;
                 for (buttons, 0..) |button, i| {
                     if (self.cursor == button.value) {
-                        w4.DRAW_COLORS.* = 0x40;
+                        w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
                     } else {
-                        w4.DRAW_COLORS.* = 0x04;
+                        w4.DRAW_COLORS.* = self.text_color;
                     }
-                    util.text_centered(button.name, @intCast(i * 8 + 16));
+                    util.text_centered(button.name, @intCast(i * 8 + 24));
+                }
+                if (self.menu == Menu.Palette) self.display_palette();
+            },
+            Menu.Options => {
+                w4.DRAW_COLORS.* = self.text_color;
+                util.text_centered("Pong!", 8);
+
+                const buttons = get_buttons(self.menu).?;
+                for (buttons, 0..) |button, i| {
+                    const selected = self.cursor == button.value;
+                    if (selected) {
+                        w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
+                    } else {
+                        w4.DRAW_COLORS.* = self.text_color;
+                    }
+                    if (@as(OptionsButtons, @enumFromInt(i)) == OptionsButtons.enable_ai) {
+                        const enable_ai = self.paddle_r.ai;
+                        const text = if (enable_ai) "yes" else "no";
+                        if (selected) {
+                            util.text_centeredf("\x84{s}: {s}\x85", .{ button.name, text }, @intCast(i * 8 + 24));
+                        } else {
+                            util.text_centeredf("{s}: {s}", .{ button.name, text }, @intCast(i * 8 + 24));
+                        }
+                    } else {
+                        util.text_centered(button.name, @intCast(i * 8 + 24));
+                    }
                 }
                 if (self.menu == Menu.Palette) self.display_palette();
             },
             Menu.Colors => {
-                w4.DRAW_COLORS.* = 0x4;
+                w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Pong!", 8);
 
                 const buttons = get_buttons(self.menu).?;
                 for (buttons, 0..) |button, i| {
                     const c = self.get_color_const(@enumFromInt(button.value));
                     if (self.cursor == button.value) {
-                        w4.DRAW_COLORS.* = 0x41;
+                        w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
                     } else {
-                        w4.DRAW_COLORS.* = 0x24;
+                        w4.DRAW_COLORS.* = self.text_color;
                     }
-                    const y: i32 = @intCast(i * 8 + 16);
+                    const y: i32 = @intCast(i * 8 + 24);
                     if (c) |color| {
                         if (self.cursor == button.value) {
                             util.text_centeredf("\x84{s} {}\x85", .{ button.name, color.* }, y);
@@ -550,7 +645,7 @@ const State = struct {
                 }
             },
             Menu.PaletteColor => {
-                w4.DRAW_COLORS.* = 0x4;
+                w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Palette", 8);
 
                 const buttons = get_buttons(self.menu).?;
@@ -560,11 +655,11 @@ const State = struct {
                     const c: ?u8 = if (i < 3) @truncate(ptr.* >> shift) else null;
 
                     if (self.cursor == button.value) {
-                        w4.DRAW_COLORS.* = 0x41;
+                        w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
                     } else {
-                        w4.DRAW_COLORS.* = 0x24;
+                        w4.DRAW_COLORS.* = self.text_color;
                     }
-                    const y: i32 = @intCast(i * 8 + 16);
+                    const y: i32 = @intCast(i * 8 + 24);
                     if (c) |color| {
                         if (self.cursor == button.value) {
                             util.text_centeredf("\x84{s} {X:0>2}\x85", .{ button.name, color }, y);
@@ -578,6 +673,10 @@ const State = struct {
                 self.display_palette();
             },
         }
+        if (self.notif_text) |text| {
+            w4.DRAW_COLORS.* = self.text_color;
+            util.text_centered(text, w4.SCREEN_SIZE - (8 * 2));
+        }
     }
 };
 var state: State = undefined;
@@ -589,6 +688,7 @@ export fn start() void {
         0x00b9be,
         0x9ff4e5,
     };
+    BUTTONS = Buttons.new();
     state = State.new();
 }
 
