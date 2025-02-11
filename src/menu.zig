@@ -9,6 +9,7 @@ pub const Menu = enum(ENUM_TYPE) {
     Colors,
     Palette,
     PaletteColor,
+    Sizes,
 };
 //the buttons displayed on each menu
 pub const StartButtons = enum(ENUM_TYPE) {
@@ -21,6 +22,7 @@ pub const StartButtons = enum(ENUM_TYPE) {
 pub const OptionsButtons = enum(ENUM_TYPE) {
     colors,
     palette,
+    sizes,
     enable_ai,
     back,
 };
@@ -44,9 +46,15 @@ pub const PaletteColorButtons = enum(ENUM_TYPE) {
     blue,
     back,
 };
+pub const SizesButtons = enum(ENUM_TYPE) {
+    paddle_width,
+    paddle_height,
+    ball_size,
+    back,
+};
 pub const menu_len = get_enum_len(Menu);
 const lookup = blk: {
-    var lookup_enum: [menu_len]?type = undefined;
+    var lookup_enum: [menu_len]?type = .{null} ** menu_len;
     //only have to write associated enums here! :D
     lookup_enum[@intFromEnum(Menu.Start)] = StartButtons;
     lookup_enum[@intFromEnum(Menu.Game)] = null;
@@ -54,6 +62,7 @@ const lookup = blk: {
     lookup_enum[@intFromEnum(Menu.Options)] = OptionsButtons;
     lookup_enum[@intFromEnum(Menu.Palette)] = PaletteButtons;
     lookup_enum[@intFromEnum(Menu.PaletteColor)] = PaletteColorButtons;
+    lookup_enum[@intFromEnum(Menu.Sizes)] = SizesButtons;
     break :blk lookup_enum;
 };
 //change above to add/remove menus/buttons

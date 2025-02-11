@@ -133,6 +133,9 @@ const DiskSave = struct {
     paddle_r: ColorIndex,
     text: ColorIndex,
     palette: [4]u32,
+    paddle_w: u8,
+    paddle_h: u8,
+    ball_size: u8,
     fn from_state(s: *const State) DiskSave {
         return DiskSave{
             .ball_color = s.ball.color,
@@ -140,6 +143,9 @@ const DiskSave = struct {
             .paddle_r = s.paddle_r.color,
             .text = s.text_color,
             .palette = w4.PALETTE.*,
+            .paddle_w = s.paddle_l.w,
+            .paddle_h = s.paddle_l.h,
+            .ball_size = s.ball.size,
         };
     }
     fn to_state(self: *const DiskSave, s: *State) void {
@@ -148,6 +154,11 @@ const DiskSave = struct {
         s.paddle_r.color = self.paddle_r;
         s.text_color = self.text;
         w4.PALETTE.* = self.palette;
+        s.paddle_l.w = self.paddle_w;
+        s.paddle_l.h = self.paddle_h;
+        s.paddle_r.w = self.paddle_w;
+        s.paddle_r.h = self.paddle_h;
+        s.ball.size = self.ball_size;
     }
     fn save(self: *const DiskSave) void {
         const bytes = w4.diskw(@ptrCast(self), @sizeOf(DiskSave));
@@ -160,6 +171,7 @@ const DiskSave = struct {
         return d;
     }
 };
+
 const State = struct {
     paddle_l: Paddle,
     paddle_r: Paddle,
@@ -238,6 +250,31 @@ const State = struct {
             else => null,
         };
     }
+    const SizesButtons = menu_mod.SizesButtons;
+    fn get_size(self: *const Self, button: SizesButtons) ?u8 {
+        return switch (button) {
+            SizesButtons.paddle_width => self.paddle_l.w,
+            SizesButtons.paddle_height => self.paddle_l.h,
+            SizesButtons.ball_size => self.ball.size,
+            else => null,
+        };
+    }
+    fn set_size(self: *Self, button: SizesButtons, size: u8) void {
+        switch (button) {
+            SizesButtons.paddle_width => {
+                self.paddle_l.w = size;
+                self.paddle_r.w = size;
+            },
+            SizesButtons.paddle_height => {
+                self.paddle_l.h = size;
+                self.paddle_r.h = size;
+            },
+            SizesButtons.ball_size => {
+                self.ball.size = size;
+            },
+            else => {},
+        }
+    }
     fn get_color_const(self: *const Self, button: ColorsButtons) ?*const ColorIndex {
         return switch (button) {
             ColorsButtons.paddle_left => &self.paddle_l.color,
@@ -250,6 +287,13 @@ const State = struct {
     fn go(self: *Self, menu: Menu) void {
         self.menu = menu;
         self.cursor = 0;
+    }
+    fn set_draw_color(self: *const Self, selected: bool) void {
+        if (selected) {
+            w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
+        } else {
+            w4.DRAW_COLORS.* = self.text_color;
+        }
     }
 
     fn update(self: *Self) void {
@@ -331,6 +375,8 @@ const State = struct {
                 if (util.is_pressed(pressed, w4.BUTTON_UP)) {
                     self.prev();
                 }
+                //function that takes in left,right, and self
+                //another for draw maybe
                 if (util.is_pressed(pressed, w4.BUTTON_LEFT) or util.is_pressed(pressed, w4.BUTTON_RIGHT)) {
                     if (@as(menu_mod.OptionsButtons, @enumFromInt(self.cursor)) == menu_mod.OptionsButtons.enable_ai) {
                         self.paddle_r.ai = !self.paddle_r.ai;
@@ -345,6 +391,9 @@ const State = struct {
                         },
                         OptionsButtons.palette => {
                             self.go(.Palette);
+                        },
+                        OptionsButtons.sizes => {
+                            self.go(.Sizes);
                         },
                         OptionsButtons.back => {
                             self.go(.Start);
@@ -435,8 +484,33 @@ const State = struct {
                     }
                 }
             },
+            Menu.Sizes => {
+                const pressed = util.get_pressed(0);
+                if (util.is_pressed(pressed, w4.BUTTON_DOWN)) {
+                    self.next();
+                }
+                if (util.is_pressed(pressed, w4.BUTTON_UP)) {
+                    self.prev();
+                }
+                const left = util.is_pressed(pressed, w4.BUTTON_LEFT);
+                const right = util.is_pressed(pressed, w4.BUTTON_RIGHT);
+                const size = self.get_size(@enumFromInt(self.cursor));
+                if (size) |s| {
+                    var new_size = s;
+                    if (left) {
+                        new_size -|= 1;
+                    }
+                    if (right) {
+                        new_size +|= 1;
+                    }
+                    self.set_size(@enumFromInt(self.cursor), new_size);
+                } else if (util.is_pressed(pressed, w4.BUTTON_1)) {
+                    self.go(Menu.Options);
+                }
+            },
         }
     }
+
     fn draw(self: *const Self) void {
         switch (self.menu) {
             Menu.Game => {
@@ -469,11 +543,7 @@ const State = struct {
                 const buttons = menu_mod.get_buttons(self.menu).?;
                 for (buttons, 0..) |button, i| {
                     const selected = self.cursor == button.value;
-                    if (selected) {
-                        w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
-                    } else {
-                        w4.DRAW_COLORS.* = self.text_color;
-                    }
+                    self.set_draw_color(selected);
                     if (@as(menu_mod.OptionsButtons, @enumFromInt(i)) == menu_mod.OptionsButtons.enable_ai) {
                         const enable_ai = self.paddle_r.ai;
                         const text = if (enable_ai) "yes" else "no";
@@ -495,11 +565,7 @@ const State = struct {
                 const buttons = menu_mod.get_buttons(self.menu).?;
                 for (buttons, 0..) |button, i| {
                     const c = self.get_color_const(@enumFromInt(button.value));
-                    if (self.cursor == button.value) {
-                        w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
-                    } else {
-                        w4.DRAW_COLORS.* = self.text_color;
-                    }
+                    self.set_draw_color(self.cursor == button.value);
                     const y: i32 = @intCast(i * 8 + 24);
                     if (c) |color| {
                         if (self.cursor == button.value) {
@@ -513,6 +579,28 @@ const State = struct {
                     self.display_palette();
                 }
             },
+            Menu.Sizes => {
+                w4.DRAW_COLORS.* = self.text_color;
+                self.display_palette();
+                util.text_centered("Pong!", 8);
+
+                const buttons = menu_mod.get_buttons(self.menu).?;
+                for (buttons, 0..) |button, i| {
+                    const size_opt = self.get_size(@enumFromInt(button.value));
+
+                    self.set_draw_color(self.cursor == button.value);
+                    const y: i32 = @intCast(i * 8 + 24);
+                    if (size_opt) |size| {
+                        if (self.cursor == button.value) {
+                            util.text_centeredf("\x84{s} {}\x85", .{ button.name, size }, y);
+                        } else {
+                            util.text_centeredf("{s} {}", .{ button.name, size }, y);
+                        }
+                    } else {
+                        util.text_centeredf("{s}", .{button.name}, y);
+                    }
+                }
+            },
             Menu.PaletteColor => {
                 w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Palette", 8);
@@ -523,11 +611,7 @@ const State = struct {
                     const shift: u5 = @truncate((8 * (2 - i)));
                     const c: ?u8 = if (i < 3) @truncate(ptr.* >> shift) else null;
 
-                    if (self.cursor == button.value) {
-                        w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
-                    } else {
-                        w4.DRAW_COLORS.* = self.text_color;
-                    }
+                    self.set_draw_color(self.cursor == button.value);
                     const y: i32 = @intCast(i * 8 + 24);
                     if (c) |color| {
                         if (self.cursor == button.value) {
