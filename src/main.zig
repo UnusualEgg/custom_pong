@@ -1,17 +1,9 @@
 const w4 = @import("wasm4.zig");
 const util = @import("w4_util.zig");
 const std = @import("std");
+const menu_mod = @import("menu.zig");
+const Menu = menu_mod.Menu;
 
-const smiley = [8]u8{
-    0b11000011,
-    0b10000001,
-    0b00100100,
-    0b00100100,
-    0b00000000,
-    0b00100100,
-    0b10011001,
-    0b11000011,
-};
 const Color = u24;
 const ColorIndex = u4;
 const Paddle = struct {
@@ -130,136 +122,10 @@ const Ball = struct {
     }
 };
 const ENUM_TYPE = u8;
-//Every single Screen/Menu we could be on
-const Menu = enum(ENUM_TYPE) {
-    Start,
-    Game,
-    Options,
-    Colors,
-    Palette,
-    PaletteColor,
-};
-//static array maybe idk
-const StartButtons = enum(ENUM_TYPE) {
-    start,
-    options,
-    save,
-    load,
-    reset_score,
-};
-const OptionsButtons = enum(ENUM_TYPE) {
-    colors,
-    palette,
-    enable_ai,
-    back,
-};
-const ColorsButtons = enum(ENUM_TYPE) {
-    paddle_left,
-    paddle_right,
-    ball,
-    text,
-    back,
-};
-const PaletteButtons = enum(ENUM_TYPE) {
-    color1,
-    color2,
-    color3,
-    color4,
-    back,
-};
-const PaletteColorButtons = enum(ENUM_TYPE) {
-    red,
-    green,
-    blue,
-    back,
-};
-const Button = struct { name: []const u8, value: ENUM_TYPE };
-const Buttons = struct {
-    start: [get_enum_len(StartButtons)]Button,
-    options: [get_enum_len(OptionsButtons)]Button,
-    colors: [get_enum_len(ColorsButtons)]Button,
-    palette: [get_enum_len(PaletteButtons)]Button,
-    palette_color: [get_enum_len(PaletteColorButtons)]Button,
-    fn new() Buttons {
-        return Buttons{
-            .start = gen_buttons(StartButtons),
-            .options = gen_buttons(OptionsButtons),
-            .colors = gen_buttons(ColorsButtons),
-            .palette = gen_buttons(PaletteButtons),
-            .palette_color = gen_buttons(PaletteColorButtons),
-        };
-    }
-};
-
-var BUTTONS: Buttons = undefined;
-fn get_buttons(menu: Menu) ?[]const Button {
-    return switch (menu) {
-        .Start => &BUTTONS.start,
-        .Options => &BUTTONS.options,
-        .Colors => &BUTTONS.colors,
-        .Palette => &BUTTONS.palette,
-        .PaletteColor => &BUTTONS.palette_color,
-        else => null,
-    };
-}
-var alloc_buf: [128]u8 = undefined;
-var fb_alloc = std.heap.FixedBufferAllocator.init(&alloc_buf);
-var alloc = fb_alloc.allocator();
-fn gen_buttons(t: type) [get_enum_len(t)]Button {
-    var buttons: [get_enum_len(t)]Button = undefined;
-
-    const fields = @typeInfo(t).@"enum".fields;
-    inline for (fields, 0..) |field, i| {
-        if (std.mem.indexOf(u8, field.name, "_") != null) {
-            if (alloc.alloc(u8, field.name.len)) |output| {
-                _ = std.mem.replace(u8, field.name, "_", " ", output);
-                buttons[i] = Button{ .name = output, .value = @intCast(field.value) };
-            } else |_| {
-                buttons[i] = Button{ .name = "[NO SPACE!]", .value = @intCast(field.value) };
-            }
-        } else {
-            buttons[i] = Button{ .name = field.name, .value = @intCast(field.value) };
-        }
-    }
-    return buttons;
-}
-//contains bugtons
+//contains an enum value of type menu_type_lookup[menu]
 const Cursor = ENUM_TYPE;
 inline fn get_menu_fields(T: type, val: T) type {
     return @TypeOf(@field(val, @tagName(val)));
-}
-fn get_enum_len(t: type) usize {
-    switch (@typeInfo(t)) {
-        .@"enum" => |e| {
-            return e.fields.len;
-        },
-        .void => {
-            return 0;
-        },
-        else => {
-            @compileError("get_enum_len on something other than enum");
-        },
-    }
-}
-inline fn get_buttons_enum(menu: Menu) type {
-    return switch (menu) {
-        .Game => void,
-        .Start => StartButtons,
-        .Colors => ColorsButtons,
-        .Options => OptionsButtons,
-        .Palette => PaletteButtons,
-        .PaletteColor => PaletteColorButtons,
-    };
-}
-const menu_lens: [get_enum_len(Menu)]usize = blk: {
-    var lens: [get_enum_len(Menu)]usize = undefined;
-    for (@typeInfo(Menu).@"enum".fields) |field| {
-        lens[field.value] = get_enum_len(get_buttons_enum(@enumFromInt(field.value)));
-    }
-    break :blk lens;
-};
-fn get_menu_len(menu: Menu) usize {
-    return menu_lens[@intFromEnum(menu)];
 }
 const DiskSave = struct {
     ball_color: ColorIndex,
@@ -303,7 +169,7 @@ const State = struct {
     score_l_t: [2]u8 = .{ '0', '0' },
     score_r_t: [2]u8 = .{ '0', '0' },
     menu: Menu = .Start,
-    cursor: Cursor = @intFromEnum(StartButtons.start),
+    cursor: Cursor = 0,
     selected_color: u2 = 0,
     text_color: ColorIndex = 4,
     notif_text: ?[]const u8 = null,
@@ -342,7 +208,7 @@ const State = struct {
     fn next(self: *Self) void {
         if (self.menu == .Game) return;
 
-        const len = get_menu_len(self.menu);
+        const len = menu_mod.get_menu_len(self.menu);
         var curs = self.cursor;
         if (curs + 1 == len) {
             curs = 0;
@@ -353,7 +219,7 @@ const State = struct {
     }
     fn prev(self: *Self) void {
         if (self.menu == .Game) return;
-        const len = get_menu_len(self.menu);
+        const len = menu_mod.get_menu_len(self.menu);
         var curs = self.cursor;
         if (curs == 0) {
             curs = @truncate(len - 1);
@@ -362,6 +228,7 @@ const State = struct {
         }
         self.cursor = curs;
     }
+    const ColorsButtons = menu_mod.ColorsButtons;
     fn get_color(self: *Self, button: ColorsButtons) ?*ColorIndex {
         return switch (button) {
             ColorsButtons.paddle_left => &self.paddle_l.color,
@@ -431,6 +298,7 @@ const State = struct {
                 }
 
                 if (util.is_pressed(pressed, w4.BUTTON_1)) {
+                    const StartButtons = menu_mod.StartButtons;
                     switch (@as(StartButtons, @enumFromInt(self.cursor))) {
                         StartButtons.start => {
                             self.go(.Game);
@@ -464,12 +332,13 @@ const State = struct {
                     self.prev();
                 }
                 if (util.is_pressed(pressed, w4.BUTTON_LEFT) or util.is_pressed(pressed, w4.BUTTON_RIGHT)) {
-                    if (@as(OptionsButtons, @enumFromInt(self.cursor)) == OptionsButtons.enable_ai) {
+                    if (@as(menu_mod.OptionsButtons, @enumFromInt(self.cursor)) == menu_mod.OptionsButtons.enable_ai) {
                         self.paddle_r.ai = !self.paddle_r.ai;
                     }
                 }
 
                 if (util.is_pressed(pressed, w4.BUTTON_1)) {
+                    const OptionsButtons = menu_mod.OptionsButtons;
                     switch (@as(OptionsButtons, @enumFromInt(self.cursor))) {
                         OptionsButtons.colors => {
                             self.go(.Colors);
@@ -582,7 +451,7 @@ const State = struct {
                 w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Pong!", 8);
 
-                const buttons = get_buttons(self.menu).?;
+                const buttons = menu_mod.get_buttons(self.menu).?;
                 for (buttons, 0..) |button, i| {
                     if (self.cursor == button.value) {
                         w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
@@ -597,7 +466,7 @@ const State = struct {
                 w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Pong!", 8);
 
-                const buttons = get_buttons(self.menu).?;
+                const buttons = menu_mod.get_buttons(self.menu).?;
                 for (buttons, 0..) |button, i| {
                     const selected = self.cursor == button.value;
                     if (selected) {
@@ -605,7 +474,7 @@ const State = struct {
                     } else {
                         w4.DRAW_COLORS.* = self.text_color;
                     }
-                    if (@as(OptionsButtons, @enumFromInt(i)) == OptionsButtons.enable_ai) {
+                    if (@as(menu_mod.OptionsButtons, @enumFromInt(i)) == menu_mod.OptionsButtons.enable_ai) {
                         const enable_ai = self.paddle_r.ai;
                         const text = if (enable_ai) "yes" else "no";
                         if (selected) {
@@ -623,7 +492,7 @@ const State = struct {
                 w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Pong!", 8);
 
-                const buttons = get_buttons(self.menu).?;
+                const buttons = menu_mod.get_buttons(self.menu).?;
                 for (buttons, 0..) |button, i| {
                     const c = self.get_color_const(@enumFromInt(button.value));
                     if (self.cursor == button.value) {
@@ -648,7 +517,7 @@ const State = struct {
                 w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Palette", 8);
 
-                const buttons = get_buttons(self.menu).?;
+                const buttons = menu_mod.get_buttons(self.menu).?;
                 for (buttons, 0..) |button, i| {
                     const ptr: *u32 = &w4.PALETTE[@intCast(self.selected_color)];
                     const shift: u5 = @truncate((8 * (2 - i)));
@@ -688,7 +557,6 @@ export fn start() void {
         0x00b9be,
         0x9ff4e5,
     };
-    BUTTONS = Buttons.new();
     state = State.new();
 }
 
