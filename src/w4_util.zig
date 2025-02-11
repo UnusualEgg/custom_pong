@@ -89,3 +89,21 @@ pub fn text_centeredf(comptime fmt: []const u8, args: anytype, y: i32) void {
     };
     text_centered(out, y);
 }
+//mine
+pub fn get_enum_len(opt: ?type) usize {
+    if (opt) |t| {
+        switch (@typeInfo(t)) {
+            .@"enum" => |e| {
+                return e.fields.len;
+            },
+            .void => {
+                return 0;
+            },
+            else => {
+                @compileError("get_enum_len on something other than enum");
+            },
+        }
+    } else {
+        return 0;
+    }
+}
