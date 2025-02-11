@@ -77,6 +77,11 @@ const Ball = struct {
             .color = 4,
         };
     }
+    fn center_self(self: *Self) void {
+        const middle = self.size / 2;
+        self.x = @intCast(CENTER - middle);
+        self.y = @intCast(CENTER - middle);
+    }
     fn update(self: *Self) void {
         const oldy = self.y;
         self.x += self.vx;
@@ -118,7 +123,7 @@ const Ball = struct {
     }
     fn display(self: *const Self, y: comptime_int) void {
         w4.DRAW_COLORS.* = self.color;
-        w4.rect(w4.SCREEN_SIZE / 2, y, self.size, self.size);
+        w4.rect(@as(i32, @intCast(w4.SCREEN_SIZE / 2)) - @divFloor(@as(i32, @intCast(self.size)), 2), y, self.size, self.size);
     }
 };
 const ENUM_TYPE = u8;
@@ -271,6 +276,7 @@ const State = struct {
             },
             SizesButtons.ball_size => {
                 self.ball.size = size;
+                self.ball.center_self();
             },
             else => {},
         }
@@ -327,9 +333,11 @@ const State = struct {
                 }
                 if (util.is_pressed(util.get_pressed(0), w4.BUTTON_1)) {
                     self.go(.Start);
+                    const temp = DiskSave.from_state(self);
                     self.paddle_l = Paddle.new(true, false);
                     self.paddle_r = Paddle.new(false, self.paddle_r.ai);
-                    self.ball = Ball.new();
+                    self.ball.center_self();
+                    temp.to_state(self);
                 }
             },
             Menu.Start => {
