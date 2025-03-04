@@ -1,8 +1,8 @@
 const w4 = @import("wasm4.zig");
 const util = @import("w4_util.zig");
 const std = @import("std");
-const menu_mod = @import("menu.zig");
-const Menu = menu_mod.Menu;
+const menu_mod = @import("pong_menu.zig");
+const Menu = menu_mod.Menus;
 
 const Color = u24;
 const ColorIndex = u4;
@@ -185,8 +185,7 @@ const State = struct {
     score_r: u16 = 0,
     score_l_t: [2]u8 = .{ '0', '0' },
     score_r_t: [2]u8 = .{ '0', '0' },
-    menu: Menu = .Start,
-    cursor: Cursor = 0,
+    menu: menu_mod.Menu,
     selected_color: u2 = 0,
     text_color: ColorIndex = 4,
     notif_text: ?[]const u8 = null,
@@ -197,6 +196,7 @@ const State = struct {
             .paddle_l = Paddle.new(true, false),
             .paddle_r = Paddle.new(false, false),
             .ball = Ball.new(),
+            .menu = menu_mod.Menu{ .cursor = 0, .current_menu = menu_mod.Menus.Start },
         };
     }
     fn save(self: *const Self) void {
@@ -223,29 +223,15 @@ const State = struct {
         self.paddle_r.draw();
     }
     fn next(self: *Self) void {
-        if (self.menu == .Game) return;
-
-        const len = menu_mod.get_menu_len(self.menu);
-        var curs = self.cursor;
-        if (curs + 1 == len) {
-            curs = 0;
-        } else {
-            curs = curs + 1;
-        }
-        self.cursor = curs;
+        self.menu.next();
     }
     fn prev(self: *Self) void {
-        if (self.menu == .Game) return;
-        const len = menu_mod.get_menu_len(self.menu);
-        var curs = self.cursor;
-        if (curs == 0) {
-            curs = @truncate(len - 1);
-        } else {
-            curs = curs - 1;
-        }
-        self.cursor = curs;
+        self.menu.prev();
     }
-    const ColorsButtons = menu_mod.ColorsButtons;
+    fn go(self: *Self, menu: Menu) void {
+        self.menu.go(menu);
+    }
+    const ColorsButtons = menu_mod.Buttons.Colors;
     fn get_color(self: *Self, button: ColorsButtons) ?*ColorIndex {
         return switch (button) {
             ColorsButtons.paddle_left => &self.paddle_l.color,
@@ -255,7 +241,7 @@ const State = struct {
             else => null,
         };
     }
-    const SizesButtons = menu_mod.SizesButtons;
+    const SizesButtons = menu_mod.Buttons.Sizes;
     fn get_size(self: *const Self, button: SizesButtons) ?u8 {
         return switch (button) {
             SizesButtons.paddle_width => self.paddle_l.w,
@@ -290,10 +276,6 @@ const State = struct {
             else => null,
         };
     }
-    fn go(self: *Self, menu: Menu) void {
-        self.menu = menu;
-        self.cursor = 0;
-    }
     fn set_draw_color(self: *const Self, selected: bool) void {
         if (selected) {
             w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
@@ -307,7 +289,7 @@ const State = struct {
         if (self.notif_timer == 0) {
             self.notif_text = null;
         }
-        switch (self.menu) {
+        switch (self.menu.current_menu) {
             Menu.Game => {
                 self.ball.update();
                 self.paddle_l.update(self.ball.y);
@@ -350,8 +332,8 @@ const State = struct {
                 }
 
                 if (util.is_pressed(pressed, w4.BUTTON_1)) {
-                    const StartButtons = menu_mod.StartButtons;
-                    switch (@as(StartButtons, @enumFromInt(self.cursor))) {
+                    const StartButtons = menu_mod.Buttons.Start;
+                    switch (@as(StartButtons, @enumFromInt(self.menu.cursor))) {
                         StartButtons.start => {
                             self.go(.Game);
                         },
@@ -386,14 +368,14 @@ const State = struct {
                 //function that takes in left,right, and self
                 //another for draw maybe
                 if (util.is_pressed(pressed, w4.BUTTON_LEFT) or util.is_pressed(pressed, w4.BUTTON_RIGHT)) {
-                    if (@as(menu_mod.OptionsButtons, @enumFromInt(self.cursor)) == menu_mod.OptionsButtons.enable_ai) {
+                    if (@as(menu_mod.Buttons.Options, @enumFromInt(self.menu.cursor)) == menu_mod.Buttons.Options.enable_ai) {
                         self.paddle_r.ai = !self.paddle_r.ai;
                     }
                 }
 
                 if (util.is_pressed(pressed, w4.BUTTON_1)) {
-                    const OptionsButtons = menu_mod.OptionsButtons;
-                    switch (@as(OptionsButtons, @enumFromInt(self.cursor))) {
+                    const OptionsButtons = menu_mod.Buttons.Options;
+                    switch (@as(OptionsButtons, @enumFromInt(self.menu.cursor))) {
                         OptionsButtons.colors => {
                             self.go(.Colors);
                         },
@@ -420,7 +402,7 @@ const State = struct {
                 }
                 const left = util.is_pressed(pressed, w4.BUTTON_LEFT);
                 const right = util.is_pressed(pressed, w4.BUTTON_RIGHT);
-                const color = self.get_color(@enumFromInt(self.cursor));
+                const color = self.get_color(@enumFromInt(self.menu.cursor));
                 if (color) |c| {
                     if (left) {
                         if (c.* == 0) c.* = 4 else c.* -%= 1;
@@ -446,8 +428,8 @@ const State = struct {
                     self.prev();
                 }
                 if (util.is_pressed(pressed, w4.BUTTON_1)) {
-                    if (self.cursor < 4) {
-                        self.selected_color = @truncate(self.cursor);
+                    if (self.menu.cursor < 4) {
+                        self.selected_color = @truncate(self.menu.cursor);
                         self.go(.PaletteColor);
                     } else {
                         self.go(.Options);
@@ -468,8 +450,8 @@ const State = struct {
                 const left = util.is_pressed(slow_or_held, w4.BUTTON_LEFT);
                 const right = util.is_pressed(slow_or_held, w4.BUTTON_RIGHT);
                 const ptr: *u32 = &w4.PALETTE[@intCast(self.selected_color)];
-                const shift: u5 = @truncate((8 * (self.cursor)));
-                var color: ?u8 = if (self.cursor < 3) @truncate(ptr.* >> (16 - shift)) else null;
+                const shift: u5 = @truncate((8 * (self.menu.cursor)));
+                var color: ?u8 = if (self.menu.cursor < 3) @truncate(ptr.* >> (16 - shift)) else null;
                 if (color) |*c| {
                     if (left) {
                         c.* -%= 1;
@@ -502,7 +484,7 @@ const State = struct {
                 }
                 const left = util.is_pressed(pressed, w4.BUTTON_LEFT);
                 const right = util.is_pressed(pressed, w4.BUTTON_RIGHT);
-                const size = self.get_size(@enumFromInt(self.cursor));
+                const size = self.get_size(@enumFromInt(self.menu.cursor));
                 if (size) |s| {
                     var new_size = s;
                     if (left) {
@@ -511,7 +493,7 @@ const State = struct {
                     if (right) {
                         new_size +|= 1;
                     }
-                    self.set_size(@enumFromInt(self.cursor), new_size);
+                    self.set_size(@enumFromInt(self.menu.cursor), new_size);
                 } else if (util.is_pressed(pressed, w4.BUTTON_1)) {
                     self.go(Menu.Options);
                 }
@@ -520,7 +502,7 @@ const State = struct {
     }
 
     fn draw(self: *const Self) void {
-        switch (self.menu) {
+        switch (self.menu.current_menu) {
             Menu.Game => {
                 self.paddle_l.draw();
                 self.paddle_r.draw();
@@ -533,26 +515,26 @@ const State = struct {
                 w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Pong!", 8);
 
-                const buttons = menu_mod.get_buttons(self.menu).?;
+                const buttons = menu_mod.Menu.get_buttons(self.menu.current_menu).?;
                 for (buttons, 0..) |button, i| {
-                    if (self.cursor == button.value) {
+                    if (self.menu.cursor == button.value) {
                         w4.DRAW_COLORS.* = @as(u16, @intCast(self.text_color)) << 4;
                     } else {
                         w4.DRAW_COLORS.* = self.text_color;
                     }
                     util.text_centered(button.name, @intCast(i * 8 + 24));
                 }
-                if (self.menu == Menu.Palette) self.display_palette();
+                if (self.menu.current_menu == Menu.Palette) self.display_palette();
             },
             Menu.Options => {
                 w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Pong!", 8);
 
-                const buttons = menu_mod.get_buttons(self.menu).?;
+                const buttons = menu_mod.Menu.get_buttons(self.menu.current_menu).?;
                 for (buttons, 0..) |button, i| {
-                    const selected = self.cursor == button.value;
+                    const selected = self.menu.cursor == button.value;
                     self.set_draw_color(selected);
-                    if (@as(menu_mod.OptionsButtons, @enumFromInt(i)) == menu_mod.OptionsButtons.enable_ai) {
+                    if (@as(menu_mod.Buttons.Options, @enumFromInt(i)) == menu_mod.Buttons.Options.enable_ai) {
                         const enable_ai = self.paddle_r.ai;
                         const text = if (enable_ai) "yes" else "no";
                         if (selected) {
@@ -564,19 +546,19 @@ const State = struct {
                         util.text_centered(button.name, @intCast(i * 8 + 24));
                     }
                 }
-                if (self.menu == Menu.Palette) self.display_palette();
+                if (self.menu.current_menu == Menu.Palette) self.display_palette();
             },
             Menu.Colors => {
                 w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Pong!", 8);
 
-                const buttons = menu_mod.get_buttons(self.menu).?;
+                const buttons = menu_mod.Menu.get_buttons(self.menu.current_menu).?;
                 for (buttons, 0..) |button, i| {
                     const c = self.get_color_const(@enumFromInt(button.value));
-                    self.set_draw_color(self.cursor == button.value);
+                    self.set_draw_color(self.menu.cursor == button.value);
                     const y: i32 = @intCast(i * 8 + 24);
                     if (c) |color| {
-                        if (self.cursor == button.value) {
+                        if (self.menu.cursor == button.value) {
                             util.text_centeredf("\x84{s} {}\x85", .{ button.name, color.* }, y);
                         } else {
                             util.text_centeredf("{s} {}", .{ button.name, color.* }, y);
@@ -592,14 +574,14 @@ const State = struct {
                 self.display_palette();
                 util.text_centered("Pong!", 8);
 
-                const buttons = menu_mod.get_buttons(self.menu).?;
+                const buttons = menu_mod.Menu.get_buttons(self.menu.current_menu).?;
                 for (buttons, 0..) |button, i| {
                     const size_opt = self.get_size(@enumFromInt(button.value));
 
-                    self.set_draw_color(self.cursor == button.value);
+                    self.set_draw_color(self.menu.cursor == button.value);
                     const y: i32 = @intCast(i * 8 + 24);
                     if (size_opt) |size| {
-                        if (self.cursor == button.value) {
+                        if (self.menu.cursor == button.value) {
                             util.text_centeredf("\x84{s} {}\x85", .{ button.name, size }, y);
                         } else {
                             util.text_centeredf("{s} {}", .{ button.name, size }, y);
@@ -613,16 +595,16 @@ const State = struct {
                 w4.DRAW_COLORS.* = self.text_color;
                 util.text_centered("Palette", 8);
 
-                const buttons = menu_mod.get_buttons(self.menu).?;
+                const buttons = menu_mod.Menu.get_buttons(self.menu.current_menu).?;
                 for (buttons, 0..) |button, i| {
                     const ptr: *u32 = &w4.PALETTE[@intCast(self.selected_color)];
                     const shift: u5 = @truncate((8 * (2 - i)));
                     const c: ?u8 = if (i < 3) @truncate(ptr.* >> shift) else null;
 
-                    self.set_draw_color(self.cursor == button.value);
+                    self.set_draw_color(self.menu.cursor == button.value);
                     const y: i32 = @intCast(i * 8 + 24);
                     if (c) |color| {
-                        if (self.cursor == button.value) {
+                        if (self.menu.cursor == button.value) {
                             util.text_centeredf("\x84{s} {X:0>2}\x85", .{ button.name, color }, y);
                         } else {
                             util.text_centeredf("{s} {X:0>2}", .{ button.name, color }, y);
