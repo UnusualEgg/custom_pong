@@ -301,14 +301,14 @@ const State = struct {
                     if (self.score_r > 99) {
                         self.score_r = 0;
                     }
-                    self.score_r_t = std.fmt.digits2(self.score_r);
+                    self.score_r_t = std.fmt.digits2(@intCast(self.score_r));
                 }
                 if (score_r) {
                     self.score_l += 1;
                     if (self.score_l > 99) {
                         self.score_l = 0;
                     }
-                    self.score_l_t = std.fmt.digits2(self.score_l);
+                    self.score_l_t = std.fmt.digits2(@intCast(self.score_l));
                 }
                 if (score_l or score_r) {
                     w4.tone(240, 5, 100, w4.TONE_PULSE1);
@@ -509,11 +509,11 @@ const State = struct {
                 self.ball.draw();
 
                 w4.DRAW_COLORS.* = self.text_color;
-                util.text_centeredf("{s} {s}", .{ self.score_l_t, self.score_r_t }, 16);
+                _ = util.text_centeredf("{s} {s}", .{ self.score_l_t, self.score_r_t }, 16);
             },
             Menu.Start, Menu.Palette => {
                 w4.DRAW_COLORS.* = self.text_color;
-                util.text_centered("Pong!", 8);
+                _ = util.text_centered("Pong!", 8);
 
                 const buttons = menu_mod.Menu.get_buttons(self.menu.current_menu).?;
                 for (buttons, 0..) |button, i| {
@@ -522,13 +522,13 @@ const State = struct {
                     } else {
                         w4.DRAW_COLORS.* = self.text_color;
                     }
-                    util.text_centered(button.name, @intCast(i * 8 + 24));
+                    _ = util.text_centered(button.name, @intCast(i * 8 + 24));
                 }
                 if (self.menu.current_menu == Menu.Palette) self.display_palette();
             },
             Menu.Options => {
                 w4.DRAW_COLORS.* = self.text_color;
-                util.text_centered("Pong!", 8);
+                _ = util.text_centered("Pong!", 8);
 
                 const buttons = menu_mod.Menu.get_buttons(self.menu.current_menu).?;
                 for (buttons, 0..) |button, i| {
@@ -538,19 +538,19 @@ const State = struct {
                         const enable_ai = self.paddle_r.ai;
                         const text = if (enable_ai) "yes" else "no";
                         if (selected) {
-                            util.text_centeredf("\x84{s}: {s}\x85", .{ button.name, text }, @intCast(i * 8 + 24));
+                            _ = util.text_centeredf("\x84{s}: {s}\x85", .{ button.name, text }, @intCast(i * 8 + 24));
                         } else {
-                            util.text_centeredf("{s}: {s}", .{ button.name, text }, @intCast(i * 8 + 24));
+                            _ = util.text_centeredf("{s}: {s}", .{ button.name, text }, @intCast(i * 8 + 24));
                         }
                     } else {
-                        util.text_centered(button.name, @intCast(i * 8 + 24));
+                        _ = util.text_centered(button.name, @intCast(i * 8 + 24));
                     }
                 }
                 if (self.menu.current_menu == Menu.Palette) self.display_palette();
             },
             Menu.Colors => {
                 w4.DRAW_COLORS.* = self.text_color;
-                util.text_centered("Pong!", 8);
+                _ = util.text_centered("Pong!", 8);
 
                 const buttons = menu_mod.Menu.get_buttons(self.menu.current_menu).?;
                 for (buttons, 0..) |button, i| {
@@ -559,12 +559,12 @@ const State = struct {
                     const y: i32 = @intCast(i * 8 + 24);
                     if (c) |color| {
                         if (self.menu.cursor == button.value) {
-                            util.text_centeredf("\x84{s} {}\x85", .{ button.name, color.* }, y);
+                            _ = util.text_centeredf("\x84{s} {}\x85", .{ button.name, color.* }, y);
                         } else {
-                            util.text_centeredf("{s} {}", .{ button.name, color.* }, y);
+                            _ = util.text_centeredf("{s} {}", .{ button.name, color.* }, y);
                         }
                     } else {
-                        util.text_centeredf("{s}", .{button.name}, y);
+                        _ = util.text_centeredf("{s}", .{button.name}, y);
                     }
                     self.display_palette();
                 }
@@ -572,7 +572,7 @@ const State = struct {
             Menu.Sizes => {
                 w4.DRAW_COLORS.* = self.text_color;
                 self.display_palette();
-                util.text_centered("Pong!", 8);
+                _ = util.text_centered("Pong!", 8);
 
                 const buttons = menu_mod.Menu.get_buttons(self.menu.current_menu).?;
                 for (buttons, 0..) |button, i| {
@@ -582,18 +582,18 @@ const State = struct {
                     const y: i32 = @intCast(i * 8 + 24);
                     if (size_opt) |size| {
                         if (self.menu.cursor == button.value) {
-                            util.text_centeredf("\x84{s} {}\x85", .{ button.name, size }, y);
+                            _ = util.text_centeredf("\x84{s} {}\x85", .{ button.name, size }, y);
                         } else {
-                            util.text_centeredf("{s} {}", .{ button.name, size }, y);
+                            _ = util.text_centeredf("{s} {}", .{ button.name, size }, y);
                         }
                     } else {
-                        util.text_centeredf("{s}", .{button.name}, y);
+                        _ = util.text_centeredf("{s}", .{button.name}, y);
                     }
                 }
             },
             Menu.PaletteColor => {
                 w4.DRAW_COLORS.* = self.text_color;
-                util.text_centered("Palette", 8);
+                _ = util.text_centered("Palette", 8);
 
                 const buttons = menu_mod.Menu.get_buttons(self.menu.current_menu).?;
                 for (buttons, 0..) |button, i| {
@@ -605,12 +605,12 @@ const State = struct {
                     const y: i32 = @intCast(i * 8 + 24);
                     if (c) |color| {
                         if (self.menu.cursor == button.value) {
-                            util.text_centeredf("\x84{s} {X:0>2}\x85", .{ button.name, color }, y);
+                            _ = util.text_centeredf("\x84{s} {X:0>2}\x85", .{ button.name, color }, y);
                         } else {
-                            util.text_centeredf("{s} {X:0>2}", .{ button.name, color }, y);
+                            _ = util.text_centeredf("{s} {X:0>2}", .{ button.name, color }, y);
                         }
                     } else {
-                        util.text_centeredf("{s}", .{button.name}, y);
+                        _ = util.text_centeredf("{s}", .{button.name}, y);
                     }
                 }
                 self.display_palette();
@@ -618,7 +618,7 @@ const State = struct {
         }
         if (self.notif_text) |text| {
             w4.DRAW_COLORS.* = self.text_color;
-            util.text_centered(text, w4.SCREEN_SIZE - (8 * 2));
+            _ = util.text_centered(text, w4.SCREEN_SIZE - (8 * 2));
         }
     }
 };
