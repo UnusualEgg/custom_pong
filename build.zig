@@ -49,8 +49,10 @@ pub fn build(b: *std.Build) !void {
     // });
 
     // var s = b.addRunArtifact(convert);
-    // exe.step.dependOn(&s.step);
-    // b.addRunArtifact(exe: *Step.Compile)
+    const s = b.addSystemCommand(&.{ "w4", "run-native" });
+    s.addArtifactArg(exe);
+    const run = b.step("run", "run the cart with w4");
+    run.dependOn(&s.step);
 
     b.installArtifact(exe);
 
