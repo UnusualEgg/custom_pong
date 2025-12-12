@@ -1,5 +1,5 @@
 const w4 = @import("wasm4.zig");
-const util = @import("w4_util.zig");
+const util = @import("w4_util");
 const std = @import("std");
 const menu_mod = @import("pong_menu.zig");
 const Menu = menu_mod.Menus;

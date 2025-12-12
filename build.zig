@@ -6,14 +6,31 @@ pub fn build(b: *std.Build) !void {
     const query = std.Target.Query{ .cpu_arch = .wasm32, .os_tag = .freestanding };
     const target = b.resolveTargetQuery(query);
 
-    const exe = b.addExecutable(.{
-        .name = "cart",
-        .root_source_file = b.path("src/main.zig"),
+    const utils_dep = b.dependency("util", .{
         .target = target,
         .optimize = optimize,
-        .strip = true,
-        .error_tracing = true,
-        .single_threaded = true,
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "cart",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .strip = true,
+            .error_tracing = true,
+            .single_threaded = true,
+            .imports = &.{
+                .{
+                    .name = "menu",
+                    .module = utils_dep.module("menu"),
+                },
+                .{
+                    .name = "w4_util",
+                    .module = utils_dep.module("w4_util"),
+                },
+            },
+        }),
     });
 
     exe.entry = .disabled;

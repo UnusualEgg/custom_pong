@@ -1,4 +1,4 @@
-const menu = @import("menu.zig");
+const menu = @import("menu");
 
 const ENUM_TYPE = u8;
 //Every single Screen/Menu we could be on
