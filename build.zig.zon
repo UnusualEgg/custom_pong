@@ -1,0 +1,12 @@
+.{
+    .name = .custom_pong,
+    .version = "0.15.1",
+    .dependencies = .{
+        .util = .{
+            .url = "git+https://github.com/UnusualEgg/util?ref=HEAD#cc78b88e157178601acf8ac3d6b00903f5987662",
+            .hash = "util-0.0.0-q0cqNhZdAAA6hYHL_GNsN4uItFuhGb6zne9awQlgNYjy",
+        },
+    },
+    .paths = .{""},
+    .fingerprint = 0x202e89b2d43de0e3,
+}
